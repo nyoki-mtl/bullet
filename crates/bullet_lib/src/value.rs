@@ -83,6 +83,55 @@ struct ValidationReport {
     positions: usize,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum LossRecordKind {
+    Train,
+    Validation,
+}
+
+impl LossRecordKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Train => "train",
+            Self::Validation => "validation",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct LossRecord {
+    superbatch: usize,
+    step_in_superbatch: usize,
+    loss: f32,
+    kind: LossRecordKind,
+}
+
+impl LossRecord {
+    fn train(superbatch: usize, step_in_superbatch: usize, loss: f32) -> Self {
+        Self { superbatch, step_in_superbatch, loss, kind: LossRecordKind::Train }
+    }
+
+    fn validation(superbatch: usize, step_in_superbatch: usize, loss: f32) -> Self {
+        Self { superbatch, step_in_superbatch, loss, kind: LossRecordKind::Validation }
+    }
+
+    fn kind(&self) -> LossRecordKind {
+        self.kind
+    }
+
+    fn superbatch(&self) -> usize {
+        self.superbatch
+    }
+
+    fn step(&self) -> usize {
+        self.step_in_superbatch
+    }
+
+    fn loss(&self) -> f32 {
+        self.loss
+    }
+}
+
 type CoreTrainer<Opt, Inp, Out> = Trainer<ExecutionContext, Graph, Opt, ValueTrainerState<Inp, Out>>;
 
 struct ValidationContext<I, O, D, W>
@@ -94,8 +143,8 @@ where
     W: WdlScheduler,
 {
     loader: ValidationDataLoader<I, O, D, W>,
-    frequency: usize,
-    batches_until_eval: usize,
+    frequency_superbatch: usize,
+    superbatches_until_eval: usize,
     device_batch: RefCell<Option<PreparedBatchDevice<ExecutionContext>>>,
     next_start_batch: usize,
 }
@@ -108,42 +157,53 @@ where
     D: loader::DataLoader<I::RequiredDataType>,
     W: WdlScheduler,
 {
-    fn new(loader: ValidationDataLoader<I, O, D, W>, frequency: usize) -> Self {
-        let batches_until_eval = if frequency == 0 { usize::MAX } else { frequency };
-        Self { loader, frequency, batches_until_eval, device_batch: RefCell::new(None), next_start_batch: 0 }
+    fn new(loader: ValidationDataLoader<I, O, D, W>, frequency_superbatch: usize) -> Self {
+        let (frequency_superbatch, superbatches_until_eval) =
+            if frequency_superbatch == 0 { (0, 0) } else { (frequency_superbatch, frequency_superbatch) };
+
+        Self {
+            loader,
+            frequency_superbatch,
+            superbatches_until_eval,
+            device_batch: RefCell::new(None),
+            next_start_batch: 0,
+        }
     }
 
-    fn tick<Opt>(
+    fn on_superbatch_end<Opt>(
         &mut self,
         trainer: &mut CoreTrainer<Opt, I, O>,
         superbatch: usize,
-        curr_batch: usize,
-        record: &RefCell<Vec<(usize, usize, f32)>>,
+        record: &RefCell<Vec<LossRecord>>,
+        batches_per_superbatch: usize,
     ) where
         Opt: OptimiserState<ExecutionContext>,
     {
-        if self.frequency == 0 {
+        if self.frequency_superbatch == 0 {
             return;
         }
 
-        if self.batches_until_eval > 0 {
-            self.batches_until_eval -= 1;
+        if self.superbatches_until_eval > 0 {
+            self.superbatches_until_eval -= 1;
         }
 
-        if self.batches_until_eval == 0 {
+        if self.superbatches_until_eval == 0 {
             match self.run_validation(trainer, superbatch) {
                 Ok(report) => {
                     if report.batches > 0 {
                         let colour = logger::num_cs();
                         println!(
-                            "validation superbatch {} batch {} | loss {} | batches {} | positions {}",
+                            "validation superbatch {} | loss {} | batches {} | positions {}",
                             logger::ansi(superbatch, colour),
-                            logger::ansi(curr_batch, colour),
                             logger::ansi(format!("{:.6}", report.average_loss), 31),
                             logger::ansi(report.batches, colour),
                             logger::ansi(report.positions, colour),
                         );
-                        record.borrow_mut().push((superbatch, curr_batch, report.average_loss));
+                        record.borrow_mut().push(LossRecord::validation(
+                            superbatch,
+                            batches_per_superbatch,
+                            report.average_loss,
+                        ));
                     } else {
                         println!(
                             "{}",
@@ -159,7 +219,7 @@ where
                 }
             }
 
-            self.batches_until_eval = self.frequency;
+            self.superbatches_until_eval = self.frequency_superbatch;
         }
     }
 
@@ -281,7 +341,10 @@ where
 
         if let Some(test_set) = settings.test_set {
             println!("Validation Dataset     : {}", logger::ansi(test_set.path, "32;1"));
-            println!("Validation Frequency   : {}", logger::ansi(test_set.freq, 31));
+            println!("Validation Interval    : {} superbatch(es)", logger::ansi(test_set.freq, 31));
+            if let Some(batches) = test_set.batches_per_eval {
+                println!("Validation Batches     : {}", logger::ansi(batches, 31));
+            }
         }
 
         let training_loader = DefaultDataLoader::new(
@@ -294,6 +357,8 @@ where
             schedule.eval_scale,
             dataloader.clone(),
         );
+
+        let steps = schedule.steps;
 
         let mut validation_context = match (settings.test_set, validation_loader) {
             (Some(test_set), Some(validation_loader)) => {
@@ -318,7 +383,12 @@ where
                         validation_loader.clone(),
                     );
 
-                    let validation_steps = schedule.steps_for_validation(test_set.freq);
+                    let superbatch_frequency = test_set.freq;
+                    let batches_per_eval = test_set
+                        .batches_per_eval
+                        .unwrap_or_else(|| (steps.batches_per_superbatch / superbatch_frequency.max(1)).max(1));
+                    let mut validation_steps = steps;
+                    validation_steps.batches_per_superbatch = batches_per_eval.max(1);
                     let max_superbatch = schedule.steps.end_superbatch.max(1);
 
                     Some(ValidationContext::new(
@@ -329,7 +399,7 @@ where
                             schedule.wdl_scheduler.clone(),
                             max_superbatch,
                         ),
-                        test_set.freq,
+                        superbatch_frequency,
                     ))
                 }
             }
@@ -350,9 +420,7 @@ where
 
         let lr_scheduler = schedule.lr_scheduler.clone();
 
-        let steps = schedule.steps;
-
-        let error_record = RefCell::new(Vec::new());
+        let error_record = RefCell::new(Vec::<LossRecord>::new());
         let mut prev32_loss = 0.0;
 
         self.train_custom(
@@ -367,7 +435,7 @@ where
                 dataloader: training_loader,
                 wdl: schedule.wdl_scheduler.clone(),
             },
-            |trainer, superbatch, curr_batch, error| {
+            |_, superbatch, curr_batch, error| {
                 prev32_loss += error;
 
                 if curr_batch % 32 == 0
@@ -375,16 +443,15 @@ where
                 {
                     prev32_loss /= 32.0_f32.min(steps.batches_per_superbatch as f32);
 
-                    error_record.borrow_mut().push((superbatch, curr_batch, prev32_loss));
+                    error_record.borrow_mut().push(LossRecord::train(superbatch, curr_batch, prev32_loss));
 
                     prev32_loss = 0.0;
                 }
-
-                if let Some(validation) = validation_context.as_mut() {
-                    validation.tick(trainer, superbatch, curr_batch, &error_record);
-                }
             },
             |trainer, superbatch| {
+                if let Some(validation) = validation_context.as_mut() {
+                    validation.on_superbatch_end(trainer, superbatch, &error_record, steps.batches_per_superbatch);
+                }
                 if superbatch % schedule.save_rate == 0 || superbatch == steps.end_superbatch {
                     let name = format!("{}-{superbatch}", schedule.net_id);
                     let path = format!("{}/{name}", settings.output_directory);

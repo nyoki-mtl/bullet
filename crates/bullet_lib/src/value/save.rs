@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     nn::{ExecutionContext, Graph},
-    value::ValueTrainerState,
+    value::{LossRecord, ValueTrainerState},
 };
 use acyclib::{
     graph::{
@@ -23,12 +23,13 @@ use crate::{
 
 type ValueTrainerInner<Opt, Inp, Out> = Trainer<ExecutionContext, Graph, Opt, ValueTrainerState<Inp, Out>>;
 
-pub(super) fn write_losses(path: &str, error_record: &[(usize, usize, f32)]) {
+pub(super) fn write_losses(path: &str, error_record: &[LossRecord]) {
     use std::io::Write;
 
     let mut writer = std::io::BufWriter::new(std::fs::File::create(path).expect("Opening log file failed!"));
-    for (superbatch, batch, loss) in error_record {
-        writeln!(writer, "{superbatch},{batch},{loss}",).expect("Writing to log file failed!");
+    for record in error_record {
+        writeln!(writer, "{},{},{},{}", record.superbatch(), record.step(), record.loss(), record.kind().label(),)
+            .expect("Writing to log file failed!");
     }
 }
 

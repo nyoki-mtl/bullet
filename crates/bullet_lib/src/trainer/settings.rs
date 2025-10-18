@@ -4,13 +4,15 @@ use acyclib::trainer::logger::ansi;
 pub struct TestDataset<'a> {
     /// Path to test dataset.
     pub path: &'a str,
-    /// Frequency of validation loss (run validation every `freq` batches).
+    /// Frequency of validation loss (run validation every `freq` superbatches).
     pub freq: usize,
+    /// Number of batches to consume from the validation loader each evaluation.
+    pub batches_per_eval: Option<usize>,
 }
 
 impl<'a> TestDataset<'a> {
     pub fn at(path: &'a str) -> TestDataset<'a> {
-        Self { path, freq: 32 }
+        Self { path, freq: 1, batches_per_eval: None }
     }
 }
 
@@ -32,5 +34,11 @@ impl LocalSettings<'_> {
     pub fn display(&self) {
         println!("Threads                : {}", ansi(self.threads, 31));
         println!("Output Path            : {}", ansi(self.output_directory, "32;1"));
+        if let Some(test_set) = self.test_set {
+            println!("Validation Interval    : {} superbatch(es)", ansi(test_set.freq, 31));
+            if let Some(batches) = test_set.batches_per_eval {
+                println!("Validation Batches     : {}", ansi(batches, 31));
+            }
+        }
     }
 }
