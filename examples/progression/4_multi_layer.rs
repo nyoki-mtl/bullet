@@ -109,6 +109,7 @@ fn main() {
     let settings = LocalSettings { threads: 2, test_set: None, output_directory: "checkpoints", batch_queue_size: 32 };
 
     let dataloader = DirectSequentialDataLoader::new(&[dataset_path]);
+    let validation_loader: Option<&DirectSequentialDataLoader> = None;
 
-    trainer.run(&schedule, &settings, &dataloader);
+    trainer.run(&schedule, &settings, &dataloader, validation_loader);
 }

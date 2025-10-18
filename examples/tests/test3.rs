@@ -41,8 +41,9 @@ fn main() {
     let settings = LocalSettings { threads: 4, test_set: None, output_directory: "checkpoints", batch_queue_size: 512 };
 
     let data_loader = DirectSequentialDataLoader::new(&["examples/tests/batch.bf"]);
+    let validation_loader: Option<&DirectSequentialDataLoader> = None;
 
-    trainer.run(&schedule, &settings, &data_loader);
+    trainer.run(&schedule, &settings, &data_loader, validation_loader);
 
     let eval = 400.0 * trainer.eval("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | 0 | 0.0");
     println!("Eval: {eval:.3}cp");

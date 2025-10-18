@@ -84,7 +84,7 @@ fn make_model(images: &Images) -> (Graph<ExecutionContext>, Node) {
     ones.matmul(losses);
 
     let outputs = f2.node();
-    (builder.build(ExecutionContext::default()), outputs)
+    (builder.build(ExecutionContext), outputs)
 }
 
 fn calculate_accuracy(

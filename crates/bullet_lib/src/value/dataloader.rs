@@ -64,6 +64,91 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct ValidationDataLoader<I, O, D, W>
+where
+    I: SparseInputType,
+    I::RequiredDataType: loader::LoadableDataType,
+    O: OutputBuckets<I::RequiredDataType>,
+    D: loader::DataLoader<I::RequiredDataType>,
+    W: WdlScheduler,
+{
+    dataloader: loader::DefaultDataLoader<I, O, D>,
+    steps: TrainingSteps,
+    threads: usize,
+    wdl: W,
+    max_superbatch: usize,
+}
+
+impl<I, O, D, W> ValidationDataLoader<I, O, D, W>
+where
+    I: SparseInputType,
+    I::RequiredDataType: loader::LoadableDataType,
+    O: OutputBuckets<I::RequiredDataType>,
+    D: loader::DataLoader<I::RequiredDataType>,
+    W: WdlScheduler,
+{
+    pub fn new(
+        dataloader: loader::DefaultDataLoader<I, O, D>,
+        steps: TrainingSteps,
+        threads: usize,
+        wdl: W,
+        max_superbatch: usize,
+    ) -> Self {
+        let mut steps = steps;
+        if steps.batches_per_superbatch == 0 {
+            steps.batches_per_superbatch = 1;
+        }
+
+        Self { dataloader, steps, threads, wdl, max_superbatch: max_superbatch.max(1) }
+    }
+
+    pub fn batches_per_evaluation(&self) -> usize {
+        self.steps.batches_per_superbatch.max(1)
+    }
+
+    pub fn batches_per_cycle(&self) -> usize {
+        let span = self.steps.end_superbatch.saturating_sub(self.steps.start_superbatch).saturating_add(1).max(1);
+        self.batches_per_evaluation().saturating_mul(span)
+    }
+
+    fn start_offset_batches(&self) -> usize {
+        self.batches_per_evaluation().saturating_mul(self.steps.start_superbatch.saturating_sub(1))
+    }
+
+    pub fn map_prepared_batches<F>(&self, start_batch: usize, current_superbatch: usize, mut f: F)
+    where
+        F: FnMut(usize, PreparedBatchHost) -> bool,
+    {
+        if self.steps.batch_size == 0 {
+            return;
+        }
+
+        let cycle_batches = self.batches_per_cycle().max(1);
+        let start_offset = self.start_offset_batches();
+        let start_batch = start_batch % cycle_batches;
+        let start_batch = start_offset + start_batch;
+
+        let mut batches_produced = 0usize;
+        let mut batch_index = 0usize;
+        let mut should_break = false;
+
+        self.dataloader.load_and_map_batches(start_batch, self.steps.batch_size, |batch| {
+            if should_break || batches_produced >= self.steps.batches_per_superbatch {
+                return true;
+            }
+
+            let blend = self.wdl.blend(batch_index, current_superbatch, self.max_superbatch);
+            let prepared = self.dataloader.prepare(batch, self.threads, blend);
+
+            batches_produced += 1;
+            batch_index += 1;
+            should_break = f(batches_produced, prepared.into());
+            should_break || batches_produced >= self.steps.batches_per_superbatch
+        });
+    }
+}
+
 impl<I: SparseInputType, O> From<PreparedData<I, O>> for PreparedBatchHost {
     fn from(prepared_data: PreparedData<I, O>) -> Self {
         let batch_size = prepared_data.batch_size;
