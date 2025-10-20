@@ -3,6 +3,7 @@ pub mod clip;
 pub mod decay;
 pub mod radam;
 pub mod ranger;
+pub mod sgd;
 pub mod utils;
 
 use std::{collections::HashMap, fmt::Debug, marker::PhantomData, sync::Arc};
