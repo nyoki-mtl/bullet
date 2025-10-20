@@ -1,10 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::device::{
-    Device, OperationError,
-    operation::BaseOperations,
-    tensor::DenseMatrix,
-};
+use crate::device::{Device, OperationError, operation::BaseOperations, tensor::DenseMatrix};
 
 use super::{OptimiserState, utils};
 
@@ -106,10 +102,7 @@ impl<D: Device> OptimiserState<D> for SGD<D> {
     }
 
     fn set_params(&mut self, params: Self::Params) {
-        assert!(
-            params.max_weight >= params.min_weight,
-            "SGD max_weight must be >= min_weight"
-        );
+        assert!(params.max_weight >= params.min_weight, "SGD max_weight must be >= min_weight");
         self.params = params;
     }
 }
