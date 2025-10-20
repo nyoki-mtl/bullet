@@ -130,6 +130,58 @@ impl LrScheduler for CosineDecayLR {
     }
 }
 
+/// Cosine decay defined over global training steps, with optional warmup period.
+#[derive(Clone, Debug)]
+pub struct CosineDecaySteps {
+    pub initial_lr: f32,
+    pub alpha: f32,
+    pub decay_steps: usize,
+    pub steps_per_superbatch: usize,
+    pub warmup_steps: usize,
+    pub warmup_start_lr: Option<f32>,
+}
+
+impl LrScheduler for CosineDecaySteps {
+    fn lr(&self, batch: usize, superbatch: usize) -> f32 {
+        let steps_per_superbatch = self.steps_per_superbatch.max(1);
+        let sb = superbatch.max(1);
+        let global_step = ((sb.saturating_sub(1)) as u64) * steps_per_superbatch as u64 + batch as u64;
+
+        if self.warmup_steps > 0 && global_step < self.warmup_steps as u64 {
+            let start_lr = self.warmup_start_lr.unwrap_or(self.initial_lr);
+            if self.warmup_steps <= 1 {
+                return self.initial_lr;
+            }
+            let progress = global_step as f32 / (self.warmup_steps - 1) as f32;
+            return start_lr + (self.initial_lr - start_lr) * progress.clamp(0.0, 1.0);
+        }
+
+        let decay_steps = self.decay_steps.max(1) as u64;
+        let effective_step = global_step.saturating_sub(self.warmup_steps as u64).min(decay_steps);
+        let progress = effective_step as f32 / decay_steps as f32;
+        let cosine = 0.5 * (1.0 + (PI * progress).cos());
+        let decayed = (1.0 - self.alpha) * cosine + self.alpha;
+        self.initial_lr * decayed
+    }
+
+    fn colourful(&self) -> String {
+        let warmup = if self.warmup_steps > 0 {
+            let start = self.warmup_start_lr.unwrap_or(self.initial_lr);
+            format!("warmup from {} over {} steps, then ", ansi(start, 31), ansi(self.warmup_steps, 31))
+        } else {
+            String::new()
+        };
+        let final_lr = self.initial_lr * self.alpha;
+        format!(
+            "{}cosine decay from {} to {} over {} steps",
+            warmup,
+            ansi(self.initial_lr, 31),
+            ansi(final_lr, 31),
+            ansi(self.decay_steps, 31)
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ExponentialDecayLR {
     pub initial_lr: f32,
