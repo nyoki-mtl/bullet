@@ -94,6 +94,81 @@ __global__ void ClipKernel(const int32_t size, float* params, const float min_we
     }
 }
 
+__global__ void ClipForwardKernel(
+    const int32_t size,
+    const float* input,
+    float* output,
+    const float min_weight,
+    const float max_weight)
+{
+    const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tid < size / 4)
+    {
+        const float4 in = ((const float4 *)input)[tid];
+        float4 out;
+
+        out.x = min(max(in.x, min_weight), max_weight);
+        out.y = min(max(in.y, min_weight), max_weight);
+        out.z = min(max(in.z, min_weight), max_weight);
+        out.w = min(max(in.w, min_weight), max_weight);
+
+        ((float4 *)output)[tid] = out;
+    }
+    else if (4 * tid < size)
+    {
+        for (int32_t i = 0; i < size - 4 * tid; i++)
+        {
+            const int32_t j = 4 * tid + i;
+            output[j] = min(max(input[j], min_weight), max_weight);
+        }
+    }
+}
+
+__global__ void ClipBackwardKernel(
+    const int32_t size,
+    const float* input,
+    const float* output_grad,
+    float* input_grad,
+    const float min_weight,
+    const float max_weight)
+{
+    const int32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tid < size / 4)
+    {
+        const float4 in = ((const float4 *)input)[tid];
+        const float4 og = ((const float4 *)output_grad)[tid];
+        float4 ig = ((float4 *)input_grad)[tid];
+
+        if (in.x > min_weight && in.x <= max_weight) {
+            ig.x += og.x;
+        }
+        if (in.y > min_weight && in.y <= max_weight) {
+            ig.y += og.y;
+        }
+        if (in.z > min_weight && in.z <= max_weight) {
+            ig.z += og.z;
+        }
+        if (in.w > min_weight && in.w <= max_weight) {
+            ig.w += og.w;
+        }
+
+        ((float4 *)input_grad)[tid] = ig;
+    }
+    else if (4 * tid < size)
+    {
+        for (int32_t i = 0; i < size - 4 * tid; i++)
+        {
+            const int32_t j = 4 * tid + i;
+            const float val = input[j];
+            if (val > min_weight && val <= max_weight) {
+                input_grad[j] += output_grad[j];
+            }
+        }
+    }
+}
+
 extern "C" void Adam(
     const size_t size,
     const float beta1,
@@ -131,7 +206,34 @@ extern "C" void Adam(
 
 extern "C" void clip(const size_t size, float* params, const float min_weight, const float max_weight) {
     const size_t threads = 1024;
-    const size_t float4_size = (size + 3) / 4;
+   const size_t float4_size = (size + 3) / 4;
     const size_t blocks = (float4_size + threads - 1) / threads;
     ClipKernel<<<blocks, threads>>>(size, params, min_weight, max_weight);
+}
+
+extern "C" void clip_forward(
+    const size_t size,
+    const float* input,
+    float* output,
+    const float min_weight,
+    const float max_weight)
+{
+    const size_t threads = 1024;
+    const size_t float4_size = (size + 3) / 4;
+    const size_t blocks = (float4_size + threads - 1) / threads;
+    ClipForwardKernel<<<blocks, threads>>>(size, input, output, min_weight, max_weight);
+}
+
+extern "C" void clip_backward(
+    const size_t size,
+    const float* input,
+    const float* output_grad,
+    float* input_grad,
+    const float min_weight,
+    const float max_weight)
+{
+    const size_t threads = 1024;
+    const size_t float4_size = (size + 3) / 4;
+    const size_t blocks = (float4_size + threads - 1) / threads;
+    ClipBackwardKernel<<<blocks, threads>>>(size, input, output_grad, input_grad, min_weight, max_weight);
 }

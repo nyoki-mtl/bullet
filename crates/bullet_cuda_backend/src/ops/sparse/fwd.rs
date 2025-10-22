@@ -77,7 +77,7 @@ fn act_str(act: DiffableFromOutput) -> &'static str {
         DiffableFromOutput::Identity => "x",
         DiffableFromOutput::ReLU => "x > 0.0F ? x : 0.0F",
         DiffableFromOutput::CReLU => "x < 0.0F ? 0.0F : (x > 1.0F ? 1.0F : x)",
-        DiffableFromOutput::SCReLU => "x < 0.0F ? 0.0F : (x > 1.0F ? 1.0F : (x * x))",
+        DiffableFromOutput::SCReLU => "((x * x) * 0.9921875F) > 1.0F ? 1.0F : ((x * x) * 0.9921875F)",
         DiffableFromOutput::SqrReLU => "x < 0.0F ? 0.0F : (x * x)",
         DiffableFromOutput::Sigmoid => "1.0F / (1.0F + expf(-x))",
     }

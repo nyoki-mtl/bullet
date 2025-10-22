@@ -10,14 +10,22 @@ constexpr int MaximumBlocksY = 32768;
 __device__ float Identity([[maybe_unused]] float in) { return in; }
 __device__ float ReLU(float in) { return in > 0.0F ? in : 0.0F; }
 __device__ float CReLU(float in) { return in < 0.0F ? 0.0F : (in > 1.0F ? 1.0F : in); }
-__device__ float SCReLU(float in) { return in < 0.0F ? 0.0F : (in > 1.0F ? 1.0F : (in * in)); }
+__device__ float SCReLU(float in) {
+    constexpr float scale = 127.0F / 128.0F;
+    float transformed = in * in * scale;
+    return transformed > 1.0F ? 1.0F : transformed;
+}
 __device__ float SqrReLU(float in) { return in < 0.0F ? 0.0F : (in * in); }
 __device__ float sigmoid(float in) { return 1.0F / (1.0F + expf(-in)); }
 
 __device__ float primeIdentity([[maybe_unused]] float in) { return 1.0F; }
 __device__ float primeReLU(float in) { return in > 0.0F ? 1.0F : 0.0F; }
 __device__ float primeCReLU(float in) { return in > 0.0F && in < 1.0F ? 1.0F : 0.0F; }
-__device__ float primeSCReLU(float in) { return in > 0.0F && in < 1.0F ? 2.0F * in : 0.0F; }
+__device__ float primeSCReLU(float in) {
+    constexpr float scale = 127.0F / 128.0F;
+    float scaled = in * in * scale;
+    return scaled < 1.0F ? 2.0F * in * scale : 0.0F;
+}
 __device__ float primeSqrReLU(float in) { return in > 0.0F ? 2.0F * in : 0.0F; }
 __device__ float primeSigmoid(float in) {
     const float act = sigmoid(in);
@@ -288,6 +296,75 @@ BULLET_KERNEL ClipKernel(const int size, float* params, const float min_weight, 
         {
             const int j = 4 * tid + i;
             params[j] = min(max(params[j], min_weight), max_weight);
+        }
+    }
+}
+
+BULLET_KERNEL ClipForwardKernel(const int size, const float* input, float* output, const float min_value, const float max_value) {
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tid < size / 4)
+    {
+        const float4 in = ((const float4 *)input)[tid];
+        float4 out;
+
+        out.x = min(max(in.x, min_value), max_value);
+        out.y = min(max(in.y, min_value), max_value);
+        out.z = min(max(in.z, min_value), max_value);
+        out.w = min(max(in.w, min_value), max_value);
+
+        ((float4 *)output)[tid] = out;
+    }
+    else if (4 * tid < size)
+    {
+        for (int i = 0; i < size - 4 * tid; i++)
+        {
+            const int j = 4 * tid + i;
+            output[j] = min(max(input[j], min_value), max_value);
+        }
+    }
+}
+
+BULLET_KERNEL ClipBackwardKernel(
+    const int size,
+    const float* input,
+    const float* output_grad,
+    float* input_grad,
+    const float min_value,
+    const float max_value)
+{
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tid < size / 4)
+    {
+        const float4 in = ((const float4 *)input)[tid];
+        const float4 og = ((const float4 *)output_grad)[tid];
+        float4 ig = ((float4 *)input_grad)[tid];
+
+        if (in.x > min_value && in.x <= max_value) {
+            ig.x += og.x;
+        }
+        if (in.y > min_value && in.y <= max_value) {
+            ig.y += og.y;
+        }
+        if (in.z > min_value && in.z <= max_value) {
+            ig.z += og.z;
+        }
+        if (in.w > min_value && in.w <= max_value) {
+            ig.w += og.w;
+        }
+
+        ((float4 *)input_grad)[tid] = ig;
+    }
+    else if (4 * tid < size)
+    {
+        for (int i = 0; i < size - 4 * tid; i++)
+        {
+            const int j = 4 * tid + i;
+            const float val = input[j];
+            if (val > min_value && val <= max_value) {
+                input_grad[j] += output_grad[j];
+            }
         }
     }
 }

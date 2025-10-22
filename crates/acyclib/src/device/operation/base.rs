@@ -119,6 +119,17 @@ pub trait BaseOperations {
 
     fn clip(&mut self, size: usize, min: f32, max: f32) -> Result<(), Self::BaseError>;
 
+    fn clip_assign(&mut self, size: usize, input: &Self, min: f32, max: f32) -> Result<(), Self::BaseError>;
+
+    fn clip_backward(
+        &mut self,
+        size: usize,
+        input: &Self,
+        grd: &Self,
+        min: f32,
+        max: f32,
+    ) -> Result<(), Self::BaseError>;
+
     fn adam(
         &mut self,
         config: &AdamConfig,

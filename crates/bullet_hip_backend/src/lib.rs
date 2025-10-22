@@ -269,6 +269,21 @@ impl BaseOperations for Buffer<f32> {
     fn clip(&mut self, size: usize, min: f32, max: f32) -> Result<(), Self::BaseError> {
         dense::clip(size, self, min, max)
     }
+
+    fn clip_assign(&mut self, size: usize, input: &Self, min: f32, max: f32) -> Result<(), Self::BaseError> {
+        dense::clip_assign(size, input, self, min, max)
+    }
+
+    fn clip_backward(
+        &mut self,
+        size: usize,
+        input: &Self,
+        grd: &Self,
+        min: f32,
+        max: f32,
+    ) -> Result<(), Self::BaseError> {
+        dense::clip_backward(size, input, grd, self, min, max)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

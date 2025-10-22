@@ -10,14 +10,22 @@ constexpr int32_t maximumBlocks = 32768;
 __device__ float Identity([[maybe_unused]] float in) { return in; }
 __device__ float ReLU(float in) { return in > 0.0F ? in : 0.0F; }
 __device__ float CReLU(float in) { return in < 0.0F ? 0.0F : (in > 1.0F ? 1.0F : in); }
-__device__ float SCReLU(float in) { return in < 0.0F ? 0.0F : (in > 1.0F ? 1.0F : (in * in)); }
+__device__ float SCReLU(float in) {
+    constexpr float scale = 127.0F / 128.0F;
+    float transformed = in * in * scale;
+    return transformed > 1.0F ? 1.0F : transformed;
+}
 __device__ float SqrReLU(float in) { return in < 0.0F ? 0.0F : (in * in); }
 __device__ float sigmoid(float in) { return 1.0F / (1.0F + expf(-in)); }
 
 __device__ float primeIdentity([[maybe_unused]] float in) { return 1.0F; }
 __device__ float primeReLU(float in) { return in > 0.0F ? 1.0F : 0.0F; }
 __device__ float primeCReLU(float in) { return in > 0.0F && in < 1.0F ? 1.0F : 0.0F; }
-__device__ float primeSCReLU(float in) { return in > 0.0F && in < 1.0F ? 2.0F * in : 0.0F; }
+__device__ float primeSCReLU(float in) {
+    constexpr float scale = 127.0F / 128.0F;
+    float scaled = in * in * scale;
+    return scaled < 1.0F ? 2.0F * in * scale : 0.0F;
+}
 __device__ float primeSqrReLU(float in) { return in > 0.0F ? 2.0F * in : 0.0F; }
 __device__ float primeSigmoid(float in) {
     const float act = sigmoid(in);
@@ -27,7 +35,10 @@ __device__ float primeSigmoid(float in) {
 __device__ float primeInvIdentity([[maybe_unused]] float in) { return 1.0F; }
 __device__ float primeInvReLU(float in) { return in > 0.0F ? 1.0F : 0.0F; }
 __device__ float primeInvCReLU(float in) { return in > 0.0F && in < 1.0F ? 1.0F : 0.0F; }
-__device__ float primeInvSCReLU(float in) { return in > 0.0F && in < 1.0F ? 2.0F * sqrtf(in) : 0.0F; }
+__device__ float primeInvSCReLU(float in) {
+    constexpr float scale = 127.0F / 128.0F;
+    return in > 0.0F && in < 1.0F ? 2.0F * sqrtf(in / scale) * scale : 0.0F;
+}
 __device__ float primeInvSqrReLU(float in) { return in > 0.0F ? 2.0F * sqrtf(in) : 0.0F; }
 __device__ float primeInvSigmoid(float in) { return in * (1.0F - in); }
 

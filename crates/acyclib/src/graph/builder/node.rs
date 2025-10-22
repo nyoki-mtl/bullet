@@ -18,7 +18,7 @@ use crate::{
                 binary::{Concat, Select, SoftmaxCrossEntropy},
                 nary::LinearCombination,
                 sparse::SparseAffineActivate,
-                unary::{ClipPassThroughGrad, Copy, PairwiseMul, ReduceAcrossBatch, Slice, ToDense, Unary},
+                unary::{Clip, ClipPassThroughGrad, Copy, PairwiseMul, ReduceAcrossBatch, Slice, ToDense, Unary},
             },
         },
     },
@@ -201,6 +201,12 @@ impl<B: BackendMarker> GraphBuilderNode<'_, B> {
     /// but on backpropagation it acts as if it was the identity.
     pub fn clip_pass_through_grad(self, min: f32, max: f32) -> Self {
         self.builder.apply(ClipPassThroughGrad { input: self.node, min, max })
+    }
+
+    /// Clamps the values elementwise into the range [min, max],
+    /// and zeroes the gradient when the input falls outside the interval.
+    pub fn clip(self, min: f32, max: f32) -> Self {
+        self.builder.apply(Clip { input: self.node, min, max })
     }
 
     fn diffable_from_output(self, act: DiffableFromOutput) -> Self {

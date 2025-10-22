@@ -49,7 +49,10 @@ impl SparseAffineOps for CpuThread {
             DiffableFromOutput::Identity => affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| x),
             DiffableFromOutput::ReLU => affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| x.max(0.0)),
             DiffableFromOutput::CReLU => affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| x.clamp(0.0, 1.0)),
-            DiffableFromOutput::SCReLU => affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| x.clamp(0.0, 1.0).powi(2)),
+            DiffableFromOutput::SCReLU => {
+                const SCALE: f32 = 127.0 / 128.0;
+                affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| (x * x * SCALE).clamp(0.0, 1.0))
+            }
             DiffableFromOutput::SqrReLU => affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| x.max(0.0).powi(2)),
             DiffableFromOutput::Sigmoid => affine_fwd(nnz, m, k, a, x, v, b, bb, y, |x| 1.0 / (1.0 + (-x).exp())),
         }
@@ -106,21 +109,10 @@ impl SparseAffineOps for CpuThread {
                 affine_bwd(nnz, m, k, x, v, y, yg, bb, ag, bg, |x| if x > 0.0 && x < 1.0 { 1.0 } else { 0.0 })
             }
             DiffableFromOutput::SCReLU => {
-                affine_bwd(
-                    nnz,
-                    m,
-                    k,
-                    x,
-                    v,
-                    y,
-                    yg,
-                    bb,
-                    ag,
-                    bg,
-                    |x| {
-                        if x > 0.0 && x < 1.0 { 2.0 * x.sqrt() } else { 0.0 }
-                    },
-                )
+                const SCALE: f32 = 127.0 / 128.0;
+                affine_bwd(nnz, m, k, x, v, y, yg, bb, ag, bg, |x| {
+                    if x <= 0.0 || x >= 1.0 { 0.0 } else { 2.0 * (x / SCALE).sqrt() * SCALE }
+                })
             }
             DiffableFromOutput::SqrReLU => affine_bwd(nnz, m, k, x, v, y, yg, bb, ag, bg, |x| 2.0 * x.max(0.0).sqrt()),
             DiffableFromOutput::Sigmoid => affine_bwd(nnz, m, k, x, v, y, yg, bb, ag, bg, |x| x * (1.0 - x)),

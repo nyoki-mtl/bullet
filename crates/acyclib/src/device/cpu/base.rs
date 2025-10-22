@@ -33,7 +33,10 @@ impl BaseOperations for CpuBuffer<f32> {
             DiffableFromOutput::Identity => apply(size, a, self, |x| x),
             DiffableFromOutput::ReLU => apply(size, a, self, |x| x.max(0.0)),
             DiffableFromOutput::CReLU => apply(size, a, self, |x| x.clamp(0.0, 1.0)),
-            DiffableFromOutput::SCReLU => apply(size, a, self, |x| x.clamp(0.0, 1.0).powi(2)),
+            DiffableFromOutput::SCReLU => {
+                const SCALE: f32 = 127.0 / 128.0;
+                apply(size, a, self, |x| (x * x * SCALE).clamp(0.0, 1.0))
+            }
             DiffableFromOutput::SqrReLU => apply(size, a, self, |x| x.max(0.0).powi(2)),
             DiffableFromOutput::Sigmoid => apply(size, a, self, |x| 1.0 / (1.0 + (-x).exp())),
         }
@@ -66,7 +69,13 @@ impl BaseOperations for CpuBuffer<f32> {
             DiffableFromOutput::Identity => apply(size, a, grd, self, |_| 1.0),
             DiffableFromOutput::ReLU => apply(size, a, grd, self, |x| f32::from(x > 0.0)),
             DiffableFromOutput::CReLU => apply(size, a, grd, self, |x| f32::from(x > 0.0 && x < 1.0)),
-            DiffableFromOutput::SCReLU => apply(size, a, grd, self, |x| if x > 0.0 && x < 1.0 { 2.0 * x } else { 0.0 }),
+            DiffableFromOutput::SCReLU => {
+                const SCALE: f32 = 127.0 / 128.0;
+                apply(size, a, grd, self, |x| {
+                    let scaled = x * x * SCALE;
+                    if scaled < 1.0 { 2.0 * x * SCALE } else { 0.0 }
+                })
+            }
             DiffableFromOutput::SqrReLU => apply(size, a, grd, self, |x| if x > 0.0 { 2.0 * x } else { 0.0 }),
             DiffableFromOutput::Sigmoid => apply(size, a, grd, self, |x| {
                 let sig = 1.0 / (1.0 + (-x).exp());
@@ -275,6 +284,31 @@ impl BaseOperations for CpuBuffer<f32> {
     fn clip(&mut self, size: usize, min: f32, max: f32) -> Result<(), Self::BaseError> {
         for p in &mut self.buf[..size] {
             *p = p.clamp(min, max);
+        }
+
+        Ok(())
+    }
+
+    fn clip_assign(&mut self, size: usize, input: &Self, min: f32, max: f32) -> Result<(), Self::BaseError> {
+        for (out, &inp) in self.buf[..size].iter_mut().zip(input.buf[..size].iter()) {
+            *out = inp.clamp(min, max);
+        }
+
+        Ok(())
+    }
+
+    fn clip_backward(
+        &mut self,
+        size: usize,
+        input: &Self,
+        grd: &Self,
+        min: f32,
+        max: f32,
+    ) -> Result<(), Self::BaseError> {
+        for ((ig, &og), &inp) in self.buf[..size].iter_mut().zip(grd.buf[..size].iter()).zip(input.buf[..size].iter()) {
+            if inp > min && inp <= max {
+                *ig += og;
+            }
         }
 
         Ok(())

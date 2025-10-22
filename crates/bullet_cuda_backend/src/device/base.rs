@@ -411,6 +411,52 @@ impl BaseOperations for CudaBuffer<f32> {
         Ok(())
     }
 
+    fn clip_assign(&mut self, size: usize, input: &Self, min: f32, max: f32) -> Result<(), Self::BaseError> {
+        let func = self.device.module().load_function("ClipForwardKernel").map_err(CudaError::Driver)?;
+
+        unsafe {
+            self.device
+                .stream()
+                .launch_builder(&func)
+                .arg(&(size as i32))
+                .arg(&input.buf.slice(0..size))
+                .arg(&mut self.buf.slice_mut(0..size))
+                .arg(&min)
+                .arg(&max)
+                .launch(CudaDevice::elementwise_launch_params(size, 1024))
+                .map_err(CudaError::Driver)?;
+        }
+
+        Ok(())
+    }
+
+    fn clip_backward(
+        &mut self,
+        size: usize,
+        input: &Self,
+        grd: &Self,
+        min: f32,
+        max: f32,
+    ) -> Result<(), Self::BaseError> {
+        let func = self.device.module().load_function("ClipBackwardKernel").map_err(CudaError::Driver)?;
+
+        unsafe {
+            self.device
+                .stream()
+                .launch_builder(&func)
+                .arg(&(size as i32))
+                .arg(&input.buf.slice(0..size))
+                .arg(&grd.buf.slice(0..size))
+                .arg(&mut self.buf.slice_mut(0..size))
+                .arg(&min)
+                .arg(&max)
+                .launch(CudaDevice::elementwise_launch_params(size, 1024))
+                .map_err(CudaError::Driver)?;
+        }
+
+        Ok(())
+    }
+
     fn adam(
         &mut self,
         config: &AdamConfig,

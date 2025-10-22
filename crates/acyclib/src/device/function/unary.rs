@@ -289,6 +289,70 @@ impl<D: Device> DeviceOperation<D> for Unary<D> {
 }
 
 #[derive(Clone)]
+pub struct Clip<D: Device> {
+    pub input: TensorRef<D>,
+    pub output: TensorRef<D>,
+    pub min: f32,
+    pub max: f32,
+}
+
+impl<D: Device> DeviceOperation<D> for Clip<D> {
+    fn opname(&self) -> String {
+        format!("Clip[{:.3},{:.3}]", self.min, self.max)
+    }
+
+    fn execute(&self) -> Result<(), OperationError<D::DeviceError>> {
+        let input = self.input.dense();
+        let mut output = self.output.dense_mut();
+
+        if input.batch_size() != output.batch_size() {
+            return Err(OperationError::MismatchedBatchSizes);
+        }
+
+        if input.single_size() != output.single_size() {
+            return Err(OperationError::InvalidTensorFormat);
+        }
+
+        output.buf.clip_assign(input.size(), &input.buf, self.min, self.max)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct ClipBackward<D: Device> {
+    pub input: TensorRef<D>,
+    pub output_grad: TensorRef<D>,
+    pub input_grad: TensorRef<D>,
+    pub min: f32,
+    pub max: f32,
+}
+
+impl<D: Device> DeviceOperation<D> for ClipBackward<D> {
+    fn opname(&self) -> String {
+        format!("ClipBackward[{:.3},{:.3}]", self.min, self.max)
+    }
+
+    fn execute(&self) -> Result<(), OperationError<D::DeviceError>> {
+        let input = self.input.dense();
+        let output_grad = self.output_grad.dense();
+        let mut input_grad = self.input_grad.dense_mut();
+
+        if input.batch_size() != output_grad.batch_size() || input.batch_size() != input_grad.batch_size() {
+            return Err(OperationError::MismatchedBatchSizes);
+        }
+
+        if input.single_size() != output_grad.single_size() || input.single_size() != input_grad.single_size() {
+            return Err(OperationError::InvalidTensorFormat);
+        }
+
+        input_grad.buf.clip_backward(input.size(), &input.buf, &output_grad.buf, self.min, self.max)?;
+
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
 pub struct CopyOrAddStrided<D: Device> {
     pub input: TensorRef<D>,
     pub output: TensorRef<D>,

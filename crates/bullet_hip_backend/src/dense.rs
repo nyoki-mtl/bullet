@@ -1,4 +1,5 @@
 mod activate;
+mod clip;
 mod linear_comb;
 mod optimiser;
 mod pairwise;
@@ -7,6 +8,7 @@ mod slice;
 mod softmax;
 
 pub use activate::*;
+pub use clip::*;
 pub use linear_comb::*;
 pub use optimiser::*;
 pub use pairwise::*;

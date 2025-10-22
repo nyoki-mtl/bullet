@@ -42,7 +42,9 @@ impl SparseAffineImpl for CudaDevice {
                     DiffableFromOutput::Identity => "1.0F",
                     DiffableFromOutput::ReLU => "x > 0.0F ? 1.0F : 0.0F",
                     DiffableFromOutput::CReLU => "x > 0.0F && x < 1.0F ? 1.0F : 0.0F",
-                    DiffableFromOutput::SCReLU => "x > 0.0F && x < 1.0F ? 2.0F * sqrtf(x) : 0.0F",
+                    DiffableFromOutput::SCReLU => {
+                        "x <= 0.0F || x >= 1.0F ? 0.0F : 2.0F * sqrtf(x / 0.9921875F) * 0.9921875F"
+                    }
                     DiffableFromOutput::SqrReLU => "x > 0.0F ? 2.0F * sqrtf(x) : 0.0F",
                     DiffableFromOutput::Sigmoid => "x * (1.0F - x)",
                 },
