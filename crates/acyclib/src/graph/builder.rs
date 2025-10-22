@@ -15,7 +15,7 @@ use crate::{
         Device,
         function::Reduce,
         multi::{MultiDevice, MultiDeviceComm},
-        tensor::Shape,
+        tensor::{Shape, rng},
     },
     graph::{
         Graph, GraphNodeId, GraphNodeIdTy,
@@ -35,6 +35,7 @@ pub enum InitSettings {
     Zeroed,
     Normal { mean: f32, stdev: f32 },
     Uniform { mean: f32, stdev: f32 },
+    UniformStacked { mean: f32, stdev: f32, stacks: usize },
 }
 
 #[derive(Default)]
@@ -183,6 +184,34 @@ where
                     .dense_mut()
                     .seed_random(mean, stdev, false)
                     .unwrap(),
+                InitSettings::UniformStacked { mean, stdev, stacks } => {
+                    let tensor =
+                        graph.get(GraphNodeId::new(graph.weight_idx(id).unwrap(), GraphNodeIdTy::Values)).unwrap();
+                    let shape = tensor.shape();
+                    let mut dense = tensor.dense_mut();
+
+                    if stacks <= 1 {
+                        dense.seed_random(mean, stdev, false).unwrap();
+                    } else {
+                        assert!(
+                            shape.rows() % stacks == 0,
+                            "Shape rows {} must be divisible by stacks {} for weight {id}",
+                            shape.rows(),
+                            stacks
+                        );
+                        let rows = shape.rows();
+                        let cols = shape.cols();
+                        let block_rows = rows / stacks;
+                        let block_size = block_rows * cols;
+                        let base = rng::vec_f32(block_size, mean, stdev, false);
+                        let mut full = vec![0.0; rows * cols];
+                        for stack_idx in 0..stacks {
+                            let start = stack_idx * block_size;
+                            full[start..start + block_size].copy_from_slice(&base);
+                        }
+                        dense.load_from_slice(None, &full).unwrap();
+                    }
+                }
             };
         }
 
