@@ -422,6 +422,7 @@ where
 
         let error_record = RefCell::new(Vec::<LossRecord>::new());
         let mut prev32_loss = 0.0;
+        let mut prev32_count = 0usize;
 
         self.train_custom(
             trainer::schedule::TrainingSchedule {
@@ -437,15 +438,14 @@ where
             },
             |_, superbatch, curr_batch, error| {
                 prev32_loss += error;
+                prev32_count += 1;
 
-                if curr_batch % 32 == 0
-                    || (steps.batches_per_superbatch < 32 && curr_batch == steps.batches_per_superbatch)
-                {
-                    prev32_loss /= 32.0_f32.min(steps.batches_per_superbatch as f32);
-
-                    error_record.borrow_mut().push(LossRecord::train(superbatch, curr_batch, prev32_loss));
-
+                if curr_batch % 32 == 0 || curr_batch == steps.batches_per_superbatch {
+                    let divisor = prev32_count.max(1) as f32;
+                    let averaged_loss = prev32_loss / divisor;
+                    error_record.borrow_mut().push(LossRecord::train(superbatch, curr_batch, averaged_loss));
                     prev32_loss = 0.0;
+                    prev32_count = 0;
                 }
             },
             |trainer, superbatch| {
