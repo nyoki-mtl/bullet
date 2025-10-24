@@ -53,14 +53,14 @@ impl<D: Device> OptimiserState<D> for SGD<D> {
         grads.buf.mul_scalar(size, gradient_factor).map_err(OperationError::from)?;
 
         if self.params.decay != 0.0 {
-            grads.buf.add_scalar(size, self.params.decay, &weights.buf).map_err(OperationError::from)?;
+            grads.buf.linear_comb(size, 1.0, self.params.decay, &weights.buf).map_err(OperationError::from)?;
         }
 
         if use_momentum {
             self.velocity.buf.mul_scalar(size, momentum).map_err(OperationError::from)?;
-            self.velocity.buf.add_scalar(size, 1.0, &grads.buf).map_err(OperationError::from)?;
+            self.velocity.buf.linear_comb(size, 1.0, 1.0, &grads.buf).map_err(OperationError::from)?;
             if self.params.nesterov {
-                grads.buf.add_scalar(size, momentum, &self.velocity.buf).map_err(OperationError::from)?;
+                grads.buf.linear_comb(size, 1.0, momentum, &self.velocity.buf).map_err(OperationError::from)?;
             } else {
                 grads.copy_from(&self.velocity).map_err(OperationError::from)?;
             }
