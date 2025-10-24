@@ -64,3 +64,14 @@ to merge the input factoriser.
 
 The placement of `.round` and `.quantise::<T>` **does not matter**, they are always applied at the end, directly before writing to a file.
 All transformations are applied in the order they are specified (and note that `.transpose` simply uses `.transform` internally).
+
+## Shogi HalfKP (SFNN) Layout
+
+For the Shogi-specific SFNN architecture the trainer emits the following identifiers, all written in little-endian column-major layout:
+
+- `l_inputw` / `l_inputb`: feature transformer weights & biases (quantised to `i16`).
+- `psqtw`: PSQT columns, shape = `num_features x num_stacks`, quantised to `i16`.
+- `l1w` / `l1b`, `l1_factw` / `l1_factb`, `l2w` / `l2b`, `l_outputw` / `l_outputb`: stacked subnet weights/biases (quantised to `i8` / `i32`).
+
+Downstream tooling (e.g. `scripts/nnue/export_nnue_binary.py`) expects these identifiers when converting Bullet checkpoints into
+YaneuraOu-compatible binaries, so custom networks that extend the Shogi SFNN should preserve the naming scheme.

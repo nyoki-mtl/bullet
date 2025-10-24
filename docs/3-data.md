@@ -34,6 +34,18 @@ Text Format:
 - `score` is white relative and in centipawns
 - `result` is white relative and of the form `1.0` for win, `0.5` for draw, `0.0` for loss
 
+### Shogi HalfKP
+
+For Shogi NNUE training we use `ShogiHalfKPInputs`, which consumes the `HalfKPSample` produced by the conductor toolchain.
+This mirrors the chess HalfKP design but operates on 9x9 king buckets (optionally mirrored) and supports up to
+`plane_count * king_square_count` active features.
+
+The bullet library exposes a `ShogiHalfKPSample` trait so custom loaders can provide the STM/NTM feature indices without coupling
+to conductor. Quantised checkpoints include a dedicated `psqtw` tensor (see _Saved Networks_) storing PSQT columns per stack.
+
+If you reuse the conductor data pipeline the trait is already implemented; otherwise, implement it on your sample type so the
+input mapping can enumerate features correctly.
+
 
 ### Stockfish & Monty Binpacks
 
